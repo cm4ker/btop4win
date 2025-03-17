@@ -1,0 +1,5 @@
+{
+  "tasks": {
+    "build": "dotnet build btop4win.sln /p:Configuration=Release"
+  }
+}
