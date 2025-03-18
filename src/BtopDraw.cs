@@ -118,19 +118,61 @@ namespace btop4win
 
             public bool Command(string key)
             {
-                // Implement command logic here
+                switch (key)
+                {
+                    case "left":
+                        if (pos > 0) pos--;
+                        break;
+                    case "right":
+                        if (pos < Text.Length) pos++;
+                        break;
+                    case "home":
+                        pos = 0;
+                        break;
+                    case "end":
+                        pos = Text.Length;
+                        break;
+                    case "backspace":
+                        if (pos > 0)
+                        {
+                            Text = Text.Remove(pos - 1, 1);
+                            pos--;
+                        }
+                        break;
+                    case "delete":
+                        if (pos < Text.Length)
+                        {
+                            Text = Text.Remove(pos, 1);
+                        }
+                        break;
+                    case "clear":
+                        Text = string.Empty;
+                        pos = 0;
+                        break;
+                    default:
+                        if (!numeric || (numeric && char.IsDigit(key[0])))
+                        {
+                            Text = Text.Insert(pos, key);
+                            pos++;
+                        }
+                        break;
+                }
                 return true;
             }
 
             public string GetText(int limit = 0)
             {
-                // Implement text retrieval logic here
+                if (limit > 0 && Text.Length > limit)
+                {
+                    return Text.Substring(0, limit);
+                }
                 return Text;
             }
 
             public void Clear()
             {
                 Text = string.Empty;
+                pos = 0;
             }
         }
 
