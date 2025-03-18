@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace btop4win
 {
@@ -273,6 +275,154 @@ namespace btop4win
                         writer.WriteLine(bools[desc[0]] ? "True" : "False");
                 }
             }
+        }
+
+        public static void SetWinDebug()
+        {
+            IntPtr hToken = IntPtr.Zero;
+            IntPtr thisProc = GetCurrentProcess();
+
+            if (!OpenProcessToken(thisProc, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out hToken))
+            {
+                if (Marshal.GetLastWin32Error() == ERROR_NO_TOKEN)
+                {
+                    if (!ImpersonateSelf(SecurityImpersonation))
+                        throw new InvalidOperationException("SetWinDebug() -> ImpersonateSelf() failed with ID: " + Marshal.GetLastWin32Error());
+                    if (!OpenProcessToken(thisProc, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out hToken))
+                        throw new InvalidOperationException("SetWinDebug() -> OpenProcessToken() failed with ID: " + Marshal.GetLastWin32Error());
+                }
+                else
+                    throw new InvalidOperationException("SetWinDebug() -> OpenProcessToken() failed with ID: " + Marshal.GetLastWin32Error());
+            }
+
+            TOKEN_PRIVILEGES tpriv = new TOKEN_PRIVILEGES();
+            TOKEN_PRIVILEGES old_tpriv = new TOKEN_PRIVILEGES();
+            LUID luid;
+            uint tprivSize = (uint)Marshal.SizeOf(typeof(TOKEN_PRIVILEGES));
+
+            if (!LookupPrivilegeValue(null, SE_DEBUG_NAME, out luid))
+                throw new InvalidOperationException("SetWinDebug() -> LookupPrivilegeValue() failed with ID: " + Marshal.GetLastWin32Error());
+
+            tpriv.PrivilegeCount = 1;
+            tpriv.Privileges = new LUID_AND_ATTRIBUTES[1];
+            tpriv.Privileges[0].Luid = luid;
+            tpriv.Privileges[0].Attributes = 0;
+
+            if (!AdjustTokenPrivileges(hToken, false, ref tpriv, tprivSize, ref old_tpriv, out tprivSize))
+                throw new InvalidOperationException("SetWinDebug() -> AdjustTokenPrivileges() [get] failed with ID: " + Marshal.GetLastWin32Error());
+
+            old_tpriv.PrivilegeCount = 1;
+            old_tpriv.Privileges[0].Luid = luid;
+            old_tpriv.Privileges[0].Attributes |= SE_PRIVILEGE_ENABLED;
+
+            if (!AdjustTokenPrivileges(hToken, false, ref old_tpriv, tprivSize, IntPtr.Zero, IntPtr.Zero))
+                throw new InvalidOperationException("SetWinDebug() -> AdjustTokenPrivileges() [set] failed with ID: " + Marshal.GetLastWin32Error());
+
+            RevertToSelf();
+        }
+
+        public static string Bstr2Str(IntPtr source)
+        {
+            if (source == IntPtr.Zero) return "";
+            return Marshal.PtrToStringBSTR(source);
+        }
+
+        public static void WMIInit()
+        {
+            IntPtr wbemLocator = IntPtr.Zero;
+            IntPtr wbemServices = IntPtr.Zero;
+
+            if (CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED) != 0)
+                throw new InvalidOperationException("WMIInit() -> CoInitializeEx() failed");
+
+            if (CoInitializeSecurity(IntPtr.Zero, -1, IntPtr.Zero, IntPtr.Zero, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, IntPtr.Zero, EOAC_NONE, IntPtr.Zero) != 0)
+                throw new InvalidOperationException("WMIInit() -> CoInitializeSecurity() failed");
+
+            if (CoCreateInstance(ref CLSID_WbemLocator, IntPtr.Zero, CLSCTX_INPROC_SERVER, ref IID_IWbemLocator, out wbemLocator) != 0)
+                throw new InvalidOperationException("WMIInit() -> CoCreateInstance() failed");
+
+            if (Marshal.QueryInterface(wbemLocator, ref IID_IWbemServices, out wbemServices) != 0)
+                throw new InvalidOperationException("WMIInit() -> QueryInterface() failed");
+
+            if (Marshal.QueryInterface(wbemServices, ref IID_IWbemServices, out wbemServices) != 0)
+                throw new InvalidOperationException("WMIInit() -> QueryInterface() failed");
+
+            if (CoSetProxyBlanket(wbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, IntPtr.Zero, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, IntPtr.Zero, EOAC_NONE) != 0)
+                throw new InvalidOperationException("WMIInit() -> CoSetProxyBlanket() failed");
+        }
+
+        public static void OHMRCollect()
+        {
+            // Implement OHMRCollect logic here
+        }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr GetCurrentProcess();
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool LookupPrivilegeValue(string lpSystemName, string lpName, out LUID lpLuid);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges, ref TOKEN_PRIVILEGES NewState, uint BufferLength, ref TOKEN_PRIVILEGES PreviousState, out uint ReturnLength);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool ImpersonateSelf(int ImpersonationLevel);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool RevertToSelf();
+
+        [DllImport("ole32.dll", SetLastError = true)]
+        private static extern int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+        [DllImport("ole32.dll", SetLastError = true)]
+        private static extern int CoInitializeSecurity(IntPtr pSecDesc, int cAuthSvc, IntPtr asAuthSvc, IntPtr pReserved1, uint dwAuthnLevel, uint dwImpLevel, IntPtr pAuthList, uint dwCapabilities, IntPtr pReserved3);
+
+        [DllImport("ole32.dll", SetLastError = true)]
+        private static extern int CoCreateInstance(ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
+
+        [DllImport("ole32.dll", SetLastError = true)]
+        private static extern int CoSetProxyBlanket(IntPtr pProxy, uint dwAuthnSvc, uint dwAuthzSvc, IntPtr pServerPrincName, uint dwAuthnLevel, uint dwImpLevel, IntPtr pAuthInfo, uint dwCapabilities);
+
+        private const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
+        private const uint TOKEN_QUERY = 0x0008;
+        private const int ERROR_NO_TOKEN = 1008;
+        private const int SecurityImpersonation = 2;
+        private const uint SE_PRIVILEGE_ENABLED = 0x00000002;
+        private const string SE_DEBUG_NAME = "SeDebugPrivilege";
+        private const uint COINIT_MULTITHREADED = 0x0;
+        private const uint RPC_C_AUTHN_LEVEL_DEFAULT = 0;
+        private const uint RPC_C_IMP_LEVEL_IMPERSONATE = 3;
+        private const uint EOAC_NONE = 0;
+        private const uint RPC_C_AUTHN_WINNT = 10;
+        private const uint RPC_C_AUTHZ_NONE = 0;
+        private const uint RPC_C_AUTHN_LEVEL_CALL = 3;
+        private static readonly Guid CLSID_WbemLocator = new Guid("4590F811-1D3A-11D0-891F-00AA004B2E24");
+        private static readonly Guid IID_IWbemLocator = new Guid("DC12A687-737F-11CF-884D-00AA004B2E24");
+        private static readonly Guid IID_IWbemServices = new Guid("9556DC99-828C-11CF-A37E-00AA003240C7");
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LUID
+        {
+            public uint LowPart;
+            public int HighPart;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LUID_AND_ATTRIBUTES
+        {
+            public LUID Luid;
+            public uint Attributes;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_PRIVILEGES
+        {
+            public uint PrivilegeCount;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
+            public LUID_AND_ATTRIBUTES[] Privileges;
         }
     }
 }
